@@ -10,26 +10,6 @@ This project builds a native iOS dynamic library, `DebugOverlay.dylib`, that add
 
 This project is provided for **educational, research, and local debugging purposes only**.
 
-It is intended for:
-
-* Learning how iOS dynamic libraries work
-* Understanding local app save files
-* Testing authorized debug builds
-* Experimenting with local SQLite save data
-* Building internal developer tools
-
-This project is **not intended for**:
-
-* Cheating in online games
-* Modifying multiplayer systems
-* Submitting fake leaderboard scores
-* Bypassing in-app purchases
-* Disabling advertisements
-* Unlocking paid content
-* Modifying apps you do not own or have permission to test
-
-Only use this with apps, IPAs, and devices that you own, created yourself, or are explicitly authorized to modify.
-
 ---
 
 ## Features
