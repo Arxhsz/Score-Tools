@@ -417,6 +417,10 @@ If it still fails, confirm Theos and Xcode Command Line Tools are installed corr
 This project modifies local saved data only. It should not be used to interfere with online features, paid content, advertising systems, multiplayer systems, or public leaderboards.
 
 Use it responsibly and only in environments where you have permission.
+---
+
+![](https://github.com/Arxhsz/Score-Tools/blob/main/img/1.PNG)
+![](https://github.com/Arxhsz/Score-Tools/blob/main/img/2.PNG)
 
 ---
 
