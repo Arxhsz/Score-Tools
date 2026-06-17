@@ -1,6 +1,6 @@
 # Score Tools Overlay
 
-A lightweight local iOS overlay for educational testing of saved score values inside an authorized debug build.
+A lightweight local iOS overlay for educational testing of saved score values inside BlockBlast.
 
 This project builds a native iOS dynamic library, `DebugOverlay.dylib`, that adds a floating **MENU** button inside the app. The menu opens a clean **Score Tools** panel where you can check, update, reset, and undo local saved score values.
 
