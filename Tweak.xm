@@ -12,6 +12,12 @@ static UITextField *scoreField = nil;
 static UILabel *scoreInfoLabel = nil;
 static UILabel *statusLabel = nil;
 
+static BOOL menuHiddenMode = NO;
+static CGPoint menuDragStartPoint;
+static CGPoint menuOriginalCenter;
+
+static UITapGestureRecognizer *screenDoubleTapGesture = nil;
+
 #pragma mark - Helpers
 
 static UIColor *rgba(CGFloat r, CGFloat g, CGFloat b, CGFloat a) {
@@ -40,6 +46,107 @@ static void setScoreInfo(NSString *text) {
             scoreInfoLabel.text = text ?: @"High: --   Current: --";
         }
     });
+}
+
+static void saveMenuPosition(CGPoint center) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setDouble:center.x forKey:@"ScoreToolsMenuCenterX"];
+    [defaults setDouble:center.y forKey:@"ScoreToolsMenuCenterY"];
+    [defaults synchronize];
+}
+
+static CGPoint loadMenuPosition(CGRect screen) {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+
+    double x = [defaults doubleForKey:@"ScoreToolsMenuCenterX"];
+    double y = [defaults doubleForKey:@"ScoreToolsMenuCenterY"];
+
+    if (x <= 0 || y <= 0) {
+        return CGPointMake(52, 96);
+    }
+
+    CGFloat minX = 34;
+    CGFloat maxX = screen.size.width - 34;
+    CGFloat minY = 45;
+    CGFloat maxY = screen.size.height - 45;
+
+    x = MAX(minX, MIN(maxX, x));
+    y = MAX(minY, MIN(maxY, y));
+
+    return CGPointMake(x, y);
+}
+
+static void keepMenuButtonOnScreen(void) {
+    if (!menuButton) {
+        return;
+    }
+
+    CGRect screen = [UIScreen mainScreen].bounds;
+
+    CGFloat halfW = menuButton.bounds.size.width / 2.0;
+    CGFloat halfH = menuButton.bounds.size.height / 2.0;
+
+    CGFloat x = MAX(halfW + 6, MIN(screen.size.width - halfW - 6, menuButton.center.x));
+    CGFloat y = MAX(halfH + 20, MIN(screen.size.height - halfH - 20, menuButton.center.y));
+
+    menuButton.center = CGPointMake(x, y);
+}
+
+static void positionPanelNearMenu(void) {
+    if (!menuButton || !panel) {
+        return;
+    }
+
+    CGRect screen = [UIScreen mainScreen].bounds;
+
+    CGFloat panelW = panel.bounds.size.width;
+    CGFloat panelH = panel.bounds.size.height;
+
+    CGFloat x = menuButton.center.x - 34;
+    CGFloat y = CGRectGetMaxY(menuButton.frame) + 10;
+
+    if (y + panelH > screen.size.height - 20) {
+        y = CGRectGetMinY(menuButton.frame) - panelH - 10;
+    }
+
+    x = MAX(10, MIN(screen.size.width - panelW - 10, x));
+    y = MAX(30, MIN(screen.size.height - panelH - 20, y));
+
+    panel.frame = CGRectMake(x, y, panelW, panelH);
+}
+
+static void showMenuButton(void) {
+    if (!menuButton) {
+        return;
+    }
+
+    menuHiddenMode = NO;
+
+    menuButton.alpha = 1.0;
+    menuButton.backgroundColor = rgba(10, 15, 13, 0.88);
+    menuButton.layer.borderColor = rgba(85, 255, 165, 0.80).CGColor;
+    menuButton.layer.shadowOpacity = 0.45;
+    [menuButton setTitle:@"MENU" forState:UIControlStateNormal];
+
+    setStatus(@"MENU SHOWN");
+}
+
+static void hideMenuButton(void) {
+    if (!menuButton) {
+        return;
+    }
+
+    menuHiddenMode = YES;
+
+    if (panel) {
+        panel.hidden = YES;
+    }
+
+    menuButton.alpha = 0.12;
+    menuButton.backgroundColor = [UIColor clearColor];
+    menuButton.layer.borderColor = [UIColor clearColor].CGColor;
+    menuButton.layer.shadowOpacity = 0.0;
+    [menuButton setTitle:@"" forState:UIControlStateNormal];
 }
 
 #pragma mark - Pass-through views
@@ -399,6 +506,10 @@ static void restoreLastScore(void) {
 
 @interface ScoreToolsActions : NSObject
 + (instancetype)shared;
+- (void)handleMenuSingleTap:(UITapGestureRecognizer *)gesture;
+- (void)handleMenuDoubleTap:(UITapGestureRecognizer *)gesture;
+- (void)handleScreenDoubleTap:(UITapGestureRecognizer *)gesture;
+- (void)handleMenuLongPress:(UILongPressGestureRecognizer *)gesture;
 - (void)togglePanel;
 - (void)setPreset1000;
 - (void)setPreset5000;
@@ -407,6 +518,7 @@ static void restoreLastScore(void) {
 - (void)checkScoreButton;
 - (void)resetScore;
 - (void)undoChange;
+- (void)hideMenu;
 @end
 
 @implementation ScoreToolsActions
@@ -422,10 +534,102 @@ static void restoreLastScore(void) {
     return sharedInstance;
 }
 
+- (void)handleMenuSingleTap:(UITapGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateRecognized) {
+        return;
+    }
+
+    if (menuHiddenMode) {
+        return;
+    }
+
+    [self togglePanel];
+}
+
+- (void)handleMenuDoubleTap:(UITapGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateRecognized) {
+        return;
+    }
+
+    showMenuButton();
+
+    if (panel) {
+        positionPanelNearMenu();
+        panel.hidden = NO;
+        checkScore();
+        setStatus(@"READY");
+    }
+}
+
+- (void)handleScreenDoubleTap:(UITapGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateRecognized) {
+        return;
+    }
+
+    showMenuButton();
+
+    if (panel) {
+        positionPanelNearMenu();
+        panel.hidden = NO;
+        checkScore();
+        setStatus(@"READY");
+    }
+}
+
+- (void)handleMenuLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (!menuButton) {
+        return;
+    }
+
+    CGPoint touchPoint = [gesture locationInView:debugWindow];
+
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        menuDragStartPoint = touchPoint;
+        menuOriginalCenter = menuButton.center;
+
+        showMenuButton();
+        setStatus(@"Drag MENU");
+    }
+
+    if (gesture.state == UIGestureRecognizerStateChanged) {
+        CGFloat dx = touchPoint.x - menuDragStartPoint.x;
+        CGFloat dy = touchPoint.y - menuDragStartPoint.y;
+
+        menuButton.center = CGPointMake(menuOriginalCenter.x + dx,
+                                        menuOriginalCenter.y + dy);
+
+        keepMenuButtonOnScreen();
+
+        if (panel && !panel.hidden) {
+            positionPanelNearMenu();
+        }
+    }
+
+    if (gesture.state == UIGestureRecognizerStateEnded ||
+        gesture.state == UIGestureRecognizerStateCancelled ||
+        gesture.state == UIGestureRecognizerStateFailed) {
+        keepMenuButtonOnScreen();
+        saveMenuPosition(menuButton.center);
+
+        if (panel && !panel.hidden) {
+            positionPanelNearMenu();
+        }
+
+        setStatus(@"MENU moved");
+    }
+}
+
 - (void)togglePanel {
     if (!panel) {
         return;
     }
+
+    if (menuHiddenMode) {
+        showMenuButton();
+        return;
+    }
+
+    positionPanelNearMenu();
 
     panel.hidden = !panel.hidden;
 
@@ -495,7 +699,61 @@ static void restoreLastScore(void) {
     restoreLastScore();
 }
 
+- (void)hideMenu {
+    [scoreField resignFirstResponder];
+    hideMenuButton();
+}
+
 @end
+
+#pragma mark - Screen double tap attachment
+
+static UIWindow *findAppWindow(void) {
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) {
+                continue;
+            }
+
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+
+            for (UIWindow *window in windowScene.windows) {
+                if (window != debugWindow && !window.hidden && window.alpha > 0.01) {
+                    return window;
+                }
+            }
+        }
+    } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        for (UIWindow *window in UIApplication.sharedApplication.windows) {
+            if (window != debugWindow && !window.hidden && window.alpha > 0.01) {
+                return window;
+            }
+        }
+#pragma clang diagnostic pop
+    }
+
+    return nil;
+}
+
+static void attachScreenDoubleTapGesture(void) {
+    UIWindow *appWindow = findAppWindow();
+
+    if (!appWindow || screenDoubleTapGesture) {
+        return;
+    }
+
+    screenDoubleTapGesture = [[UITapGestureRecognizer alloc] initWithTarget:[ScoreToolsActions shared]
+                                                                     action:@selector(handleScreenDoubleTap:)];
+
+    screenDoubleTapGesture.numberOfTapsRequired = 2;
+    screenDoubleTapGesture.cancelsTouchesInView = NO;
+    screenDoubleTapGesture.delaysTouchesBegan = NO;
+    screenDoubleTapGesture.delaysTouchesEnded = NO;
+
+    [appWindow addGestureRecognizer:screenDoubleTapGesture];
+}
 
 #pragma mark - UI
 
@@ -546,7 +804,8 @@ static void createDebugUI(void) {
     debugWindow.rootViewController = vc;
 
     menuButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    menuButton.frame = CGRectMake(18, 76, 68, 40);
+    menuButton.frame = CGRectMake(0, 0, 68, 40);
+    menuButton.center = loadMenuPosition(screen);
     menuButton.backgroundColor = rgba(10, 15, 13, 0.88);
     menuButton.layer.cornerRadius = 14;
     menuButton.layer.borderColor = rgba(85, 255, 165, 0.80).CGColor;
@@ -562,13 +821,30 @@ static void createDebugUI(void) {
     UIFont *menuFont = [UIFont fontWithName:@"Menlo-Bold" size:12];
     menuButton.titleLabel.font = menuFont ?: [UIFont boldSystemFontOfSize:12];
 
-    [menuButton addTarget:[ScoreToolsActions shared]
-                   action:@selector(togglePanel)
-         forControlEvents:UIControlEventTouchUpInside];
+    UITapGestureRecognizer *singleTap = [[UITapGestureRecognizer alloc] initWithTarget:[ScoreToolsActions shared]
+                                                                                action:@selector(handleMenuSingleTap:)];
+    singleTap.numberOfTapsRequired = 1;
+    singleTap.cancelsTouchesInView = YES;
+
+    UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:[ScoreToolsActions shared]
+                                                                                action:@selector(handleMenuDoubleTap:)];
+    doubleTap.numberOfTapsRequired = 2;
+    doubleTap.cancelsTouchesInView = YES;
+
+    [singleTap requireGestureRecognizerToFail:doubleTap];
+
+    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:[ScoreToolsActions shared]
+                                                                                            action:@selector(handleMenuLongPress:)];
+    longPress.minimumPressDuration = 0.45;
+    longPress.cancelsTouchesInView = YES;
+
+    [menuButton addGestureRecognizer:singleTap];
+    [menuButton addGestureRecognizer:doubleTap];
+    [menuButton addGestureRecognizer:longPress];
 
     [vc.view addSubview:menuButton];
 
-    panel = [[UIView alloc] initWithFrame:CGRectMake(18, 126, 318, 334)];
+    panel = [[UIView alloc] initWithFrame:CGRectMake(18, 126, 318, 356)];
     panel.backgroundColor = rgba(8, 12, 11, 0.94);
     panel.layer.cornerRadius = 22;
     panel.layer.borderColor = rgba(85, 255, 165, 0.28).CGColor;
@@ -654,31 +930,32 @@ static void createDebugUI(void) {
                                        @selector(checkScoreButton));
     [panel addSubview:checkButton];
 
-    UIButton *resetButton = makeButton(CGRectMake(18, 298, 136, 34),
-                                       @"RESET SCORE",
+    UIButton *resetButton = makeButton(CGRectMake(18, 298, 86, 34),
+                                       @"RESET",
                                        rgba(155, 52, 63, 0.95),
                                        @selector(resetScore));
     [panel addSubview:resetButton];
 
-    UIButton *undoButton = makeButton(CGRectMake(164, 298, 136, 34),
+    UIButton *undoButton = makeButton(CGRectMake(116, 298, 86, 34),
                                       @"UNDO",
                                       rgba(179, 105, 28, 0.95),
                                       @selector(undoChange));
     [panel addSubview:undoButton];
 
-    statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(18, 314, 282, 14)];
+    UIButton *hideButton = makeButton(CGRectMake(214, 298, 86, 34),
+                                      @"HIDE",
+                                      rgba(55, 60, 65, 0.95),
+                                      @selector(hideMenu));
+    [panel addSubview:hideButton];
+
+    statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(18, 336, 282, 14)];
     statusLabel.text = @"READY";
     statusLabel.textColor = rgba(210, 255, 225, 0.78);
     statusLabel.font = [UIFont fontWithName:@"Menlo" size:9] ?: [UIFont systemFontOfSize:9];
     statusLabel.numberOfLines = 1;
-
-    // Move status slightly above bottom buttons if needed.
-    statusLabel.frame = CGRectMake(18, 336, 282, 14);
-
-    // Panel is 334 high, so status can be hidden on smaller screens.
-    // Keeping it off-buttons visually by resizing panel.
-    panel.frame = CGRectMake(18, 126, 318, 356);
     [panel addSubview:statusLabel];
+
+    positionPanelNearMenu();
 
     debugWindow.hidden = NO;
 }
@@ -689,5 +966,9 @@ __attribute__((constructor))
 static void init_debug_overlay(void) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         createDebugUI();
+
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            attachScreenDoubleTapGesture();
+        });
     });
 }
